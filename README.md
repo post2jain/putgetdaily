@@ -100,6 +100,7 @@ variables prefixed with `S3LOAD_`, and optional JSON config files. Key flags:
 | `--metrics-addr` | `S3LOAD_METRICS_ADDR` | Expose Prometheus metrics on the given address (e.g. `:9090`). |
 | `--json-report` | `S3LOAD_JSON_REPORT` | Write the final report to a file in addition to stdout. |
 | `--rate-algorithm` | `S3LOAD_RATE_ALGORITHM` | `token-bucket` (default) or `pid` for adaptive control. |
+| `--conn-lifetime` | `S3LOAD_CONN_LIFETIME` | Maximum wall-clock lifetime for each TCP connection; closes sockets after the duration even if they stay busy. |
 
 See `go run ./cmd/s3load --help` for the full flag list, including retry
 configuration, keyspace strategies (`sequential`, `random`, `zipf`), and
@@ -167,4 +168,3 @@ The repo uses standard Go tooling—no extra build steps required. See
 ## License
 
 Add your preferred license information here.
-

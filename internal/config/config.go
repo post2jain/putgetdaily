@@ -156,7 +156,7 @@ func Parse(args []string) (*Config, error) {
 	prefixFlag := fs.String("prefix", cfg.KeyPrefix, "Key prefix for generated object names")
 	addressingFlag := fs.String("addressing-style", cfg.AddressingStyle, "S3 addressing style: virtual or path")
 	httpTimeoutFlag := fs.Duration("http-timeout", cfg.HTTPTimeout, "HTTP client timeout")
-	connLifetimeFlag := fs.Duration("conn-lifetime", cfg.ConnLifetime, "Maximum lifetime for persistent connections (0 keeps connections indefinitely)")
+	connLifetimeFlag := fs.Duration("conn-lifetime", cfg.ConnLifetime, "Maximum wall-clock lifetime for persistent connections (0 keeps connections indefinitely)")
 	connReapIntervalFlag := fs.Duration("conn-reap-interval", cfg.ConnReapInterval, "Interval for closing idle connections; 0 disables")
 	shutdownGraceFlag := fs.Duration("shutdown-grace", cfg.ShutdownGrace, "Grace period to drain in-flight operations on shutdown; 0 waits indefinitely")
 	metricsAddrFlag := fs.String("metrics-addr", cfg.MetricsAddr, "Address for HTTP metrics/health endpoint (e.g. :9090)")

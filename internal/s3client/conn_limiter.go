@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"time"
 )
 
 type connLimiter struct {
@@ -90,11 +91,15 @@ func (l *connLimiter) currentConnections() int {
 	return l.current
 }
 
-func (l *connLimiter) wrapConn(conn net.Conn) net.Conn {
+func (l *connLimiter) wrapConn(conn net.Conn, lifetime time.Duration) net.Conn {
 	if l == nil {
 		return conn
 	}
-	return &limitedConn{Conn: conn, release: l.release}
+	base := &limitedConn{Conn: conn, release: l.release}
+	if lifetime <= 0 {
+		return base
+	}
+	return newLifetimeConn(base, lifetime)
 }
 
 func (l *connLimiter) notifyWaitersLocked() {
@@ -136,3 +141,32 @@ func (c *limitedConn) Close() error {
 	return err
 }
 
+type lifetimeConn struct {
+	*limitedConn
+	once  sync.Once
+	timer *time.Timer
+}
+
+func newLifetimeConn(base *limitedConn, lifetime time.Duration) net.Conn {
+	lc := &lifetimeConn{limitedConn: base}
+	lc.timer = time.AfterFunc(lifetime, lc.forceClose)
+	return lc
+}
+
+func (c *lifetimeConn) Close() error {
+	c.stopTimer()
+	return c.limitedConn.Close()
+}
+
+func (c *lifetimeConn) forceClose() {
+	c.stopTimer()
+	_ = c.limitedConn.Close()
+}
+
+func (c *lifetimeConn) stopTimer() {
+	c.once.Do(func() {
+		if c.timer != nil {
+			c.timer.Stop()
+		}
+	})
+}

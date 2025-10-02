@@ -29,7 +29,7 @@ The tool generates and measures S3 workloads against any S3-compatible endpoint.
    - Launch worker goroutines up to `concurrency`; scheduler decides when to issue new requests.
    - Scenario handling: if prior second requests still pending, open new ones up to `concurrency` limit; reuse completed connections otherwise.
    - Ensure total live sockets ≤ max concurrency via custom dialer tracking.
-   - Respect `--conn-lifetime`: connection reaper closes aged idles.
+   - Respect `--conn-lifetime`: sockets are forcibly closed once they exceed the configured wall-clock age, not just when idle.
 4. **Workers**:
    - Receive operations to perform (put/multipartput/get/etc).
    - Generate/lookup keys, build payloads (size parameter), optional integrity tag (hash stored alongside key map; for reads validate against stored hash).

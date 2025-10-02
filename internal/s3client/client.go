@@ -82,24 +82,24 @@ func New(opts Options) (*Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("parse endpoint %q: %w", raw, err)
 		}
-		transport := &http.Transport{
-			MaxConnsPerHost:     0,
-			MaxIdleConnsPerHost: 0,
-			MaxIdleConns:        0,
-			IdleConnTimeout:     opts.ConnLifetime,
-			ForceAttemptHTTP2:   true,
-		}
-		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-			if err := limiter.acquire(ctx); err != nil {
-				return nil, err
+			transport := &http.Transport{
+				MaxConnsPerHost:     0,
+				MaxIdleConnsPerHost: 0,
+				MaxIdleConns:        0,
+				IdleConnTimeout:     opts.ConnLifetime,
+				ForceAttemptHTTP2:   true,
 			}
-			conn, err := dialer.DialContext(ctx, network, address)
-			if err != nil {
-				limiter.release()
-				return nil, err
+			transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+				if err := limiter.acquire(ctx); err != nil {
+					return nil, err
+				}
+				conn, err := dialer.DialContext(ctx, network, address)
+				if err != nil {
+					limiter.release()
+					return nil, err
+				}
+				return limiter.wrapConn(conn, opts.ConnLifetime), nil
 			}
-			return limiter.wrapConn(conn), nil
-		}
 		client := &http.Client{
 			Transport: transport,
 			Timeout:   opts.Timeout,
