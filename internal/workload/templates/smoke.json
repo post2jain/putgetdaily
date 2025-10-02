@@ -1,0 +1,5 @@
+{
+  "operations": [
+    { "operation": "put", "weight": 1 }
+  ]
+}

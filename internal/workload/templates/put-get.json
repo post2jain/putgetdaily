@@ -1,0 +1,6 @@
+{
+  "operations": [
+    { "operation": "put", "weight": 7 },
+    { "operation": "get", "weight": 3 }
+  ]
+}
