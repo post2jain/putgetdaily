@@ -7,7 +7,7 @@ import (
 
 func TestMemoryStoreRoundTrip(t *testing.T) {
 	store := NewMemoryStore()
-	rec := Record{Digest: []byte{1, 2, 3}, Size: 42}
+	rec := Record{SHA256: []byte{1, 2, 3}, MD5: []byte{4, 5, 6}, CRC32C: 0x12345678, Size: 42}
 	if err := store.Remember("key1", rec); err != nil {
 		t.Fatalf("remember err: %v", err)
 	}
@@ -15,7 +15,7 @@ func TestMemoryStoreRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("lookup err=%v ok=%v", err, ok)
 	}
-	if got.Size != rec.Size || string(got.Digest) != string(rec.Digest) {
+	if got.Size != rec.Size || string(got.SHA256) != string(rec.SHA256) || string(got.MD5) != string(rec.MD5) || got.CRC32C != rec.CRC32C {
 		t.Fatalf("unexpected record: %+v", got)
 	}
 	if err := store.Forget("key1"); err != nil {
@@ -34,7 +34,7 @@ func TestFileStoreRoundTrip(t *testing.T) {
 	}
 	defer store.Close()
 
-	rec := Record{Digest: []byte("digest"), Size: 100}
+	rec := Record{SHA256: []byte("digest"), MD5: []byte("digest-md5"), CRC32C: 0xabcdef01, Size: 100}
 	if err := store.Remember("bucket/object", rec); err != nil {
 		t.Fatalf("remember err: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestFileStoreRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("lookup err=%v ok=%v", err, ok)
 	}
-	if got.Size != rec.Size || string(got.Digest) != string(rec.Digest) {
+	if got.Size != rec.Size || string(got.SHA256) != string(rec.SHA256) || string(got.MD5) != string(rec.MD5) || got.CRC32C != rec.CRC32C {
 		t.Fatalf("unexpected record: %+v", got)
 	}
 	if err := store.Forget("bucket/object"); err != nil {

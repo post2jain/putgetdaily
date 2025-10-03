@@ -1,8 +1,9 @@
 package payload
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
-	"hash"
+	"hash/crc32"
 	"io"
 )
 
@@ -73,18 +74,29 @@ func (r *Reader) Seek(offset int64, whence int) (int64, error) {
 
 // Digest computes a SHA256 checksum for the deterministic payload.
 func Digest(key string, size int64) []byte {
-	rdr := NewReader(key, size)
-	hasher := sha256.New()
-	copyStream(hasher, rdr)
-	return hasher.Sum(nil)
+	sha, _, _ := Checksums(key, size)
+	return sha
 }
 
-func copyStream(dst hash.Hash, src io.Reader) {
+// Checksums computes SHA256, MD5, and CRC32C for the deterministic payload.
+func Checksums(key string, size int64) ([]byte, []byte, uint32) {
+	rdr := NewReader(key, size)
+	sha := sha256.New()
+	md := md5.New()
+	crc := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	multi := io.MultiWriter(sha, md, crc)
+	writeAll(multi, rdr)
+	return sha.Sum(nil), md.Sum(nil), crc.Sum32()
+}
+
+func writeAll(dst io.Writer, src io.Reader) {
 	buf := make([]byte, 64*1024)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
-			dst.Write(buf[:n])
+			if _, werr := dst.Write(buf[:n]); werr != nil {
+				return
+			}
 		}
 		if err == io.EOF {
 			return

@@ -3,11 +3,15 @@ package worker
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"math/rand"
 	"net/http"
@@ -133,11 +137,14 @@ func (r *Runner) Process(ctx context.Context, item WorkItem) (Result, error) {
 
 func (r *Runner) doPut(ctx context.Context, key string) (Result, error) {
 	reader := payload.NewReader(key, r.cfg.ObjectSize)
-	digest := payload.Digest(key, r.cfg.ObjectSize)
+	shaSum, md5Sum, crc32c := payload.Checksums(key, r.cfg.ObjectSize)
 
 	headers := http.Header{}
 	headers.Set("Content-Type", "application/octet-stream")
 	r.applyWriteHeaders(headers)
+	if len(md5Sum) > 0 {
+		headers.Set("Content-MD5", base64.StdEncoding.EncodeToString(md5Sum))
+	}
 
 	req := s3client.Request{
 		Method:        http.MethodPut,
@@ -145,7 +152,7 @@ func (r *Runner) doPut(ctx context.Context, key string) (Result, error) {
 		Headers:       headers,
 		Body:          reader,
 		ExpectStatus:  http.StatusOK,
-		PayloadSHA256: hex.EncodeToString(digest),
+		PayloadSHA256: hex.EncodeToString(shaSum),
 		ContentLength: r.cfg.ObjectSize,
 	}
 	resp, err := r.client.Do(ctx, req)
@@ -156,7 +163,7 @@ func (r *Runner) doPut(ctx context.Context, key string) (Result, error) {
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
-	if err := r.store.Remember(key, payload.Record{Digest: digest, Size: r.cfg.ObjectSize}); err != nil {
+	if err := r.store.Remember(key, payload.Record{SHA256: shaSum, MD5: md5Sum, CRC32C: crc32c, Size: r.cfg.ObjectSize}); err != nil {
 		r.warn("remember checksum", key, err)
 	}
 	return Result{BytesSent: r.cfg.ObjectSize, Success: true}, nil
@@ -173,6 +180,7 @@ func (r *Runner) doMultipartPut(ctx context.Context, key string) (Result, error)
 	}
 	totalSize := r.cfg.ObjectSize
 	totalParts := int((totalSize + partSize - 1) / partSize)
+	shaSum, md5Sum, crc32c := payload.Checksums(key, totalSize)
 
 	var (
 		session       *multipartSession
@@ -302,7 +310,6 @@ func (r *Runner) doMultipartPut(ctx context.Context, key string) (Result, error)
 		r.onMultipartFailure(ctx, key, uploadID, session)
 		return Result{}, err
 	}
-	digest := payload.Digest(key, totalSize)
 	completeDigest := sha256.Sum256(completeXML)
 	payloadHash := hex.EncodeToString(completeDigest[:])
 
@@ -330,7 +337,7 @@ func (r *Runner) doMultipartPut(ctx context.Context, key string) (Result, error)
 		resp.Body.Close()
 	}
 
-	if err := r.store.Remember(key, payload.Record{Digest: digest, Size: totalSize}); err != nil {
+	if err := r.store.Remember(key, payload.Record{SHA256: shaSum, MD5: md5Sum, CRC32C: crc32c, Size: totalSize}); err != nil {
 		r.warn("remember checksum", key, err)
 	}
 	if session != nil {
@@ -358,21 +365,23 @@ func (r *Runner) doGet(ctx context.Context, key string, rangeHeader string) (Res
 	}
 	defer resp.Body.Close()
 
-	hasher := sha256.New()
-	bytesRead, err := io.Copy(hasher, resp.Body)
+	shaHasher := sha256.New()
+	mdHasher := md5.New()
+	crcHasher := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	bytesRead, err := io.Copy(io.MultiWriter(shaHasher, mdHasher, crcHasher), resp.Body)
 	if err != nil {
 		return Result{BytesReceived: bytesRead}, err
 	}
 
 	if r.cfg.PayloadVerify && rangeHeader == "" {
-		actual := hasher.Sum(nil)
 		record, ok, err := r.store.Lookup(key)
 		if err != nil {
 			return Result{BytesReceived: bytesRead}, err
 		}
 		if ok {
-			if !bytes.Equal(record.Digest, actual) {
-				return Result{BytesReceived: bytesRead}, errors.New("payload digest mismatch")
+			crcVal := crcHasher.Sum32()
+			if err := compareChecksums(key, record, shaHasher.Sum(nil), mdHasher.Sum(nil), &crcVal); err != nil {
+				return Result{BytesReceived: bytesRead}, err
 			}
 		}
 	}
@@ -395,7 +404,9 @@ func (r *Runner) doMultipartGet(ctx context.Context, key string) (Result, error)
 		return r.doGet(ctx, key, "")
 	}
 
-	hasher := sha256.New()
+	shaHasher := sha256.New()
+	mdHasher := md5.New()
+	crcHasher := crc32.New(crc32.MakeTable(crc32.Castagnoli))
 	var total int64
 	for offset := int64(0); offset < record.Size; offset += partSize {
 		end := offset + partSize - 1
@@ -422,12 +433,15 @@ func (r *Runner) doMultipartGet(ctx context.Context, key string) (Result, error)
 			return Result{BytesReceived: total}, err
 		}
 		total += int64(len(data))
-		hasher.Write(data)
+		shaHasher.Write(data)
+		mdHasher.Write(data)
+		crcHasher.Write(data)
 	}
 
 	if r.cfg.PayloadVerify {
-		if !bytes.Equal(record.Digest, hasher.Sum(nil)) {
-			return Result{BytesReceived: total}, errors.New("payload digest mismatch")
+		crcVal := crcHasher.Sum32()
+		if err := compareChecksums(key, record, shaHasher.Sum(nil), mdHasher.Sum(nil), &crcVal); err != nil {
+			return Result{BytesReceived: total}, err
 		}
 	}
 	return Result{BytesReceived: total, Success: true}, nil
@@ -743,11 +757,14 @@ func (r *Runner) doListVersions(ctx context.Context, item WorkItem) (Result, err
 		return Result{}, err
 	}
 	defer resp.Body.Close()
-	bytesRead, err := io.Copy(io.Discard, resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{BytesReceived: bytesRead, Success: true}, nil
+	if err := r.verifyListVersions(data); err != nil {
+		return Result{BytesReceived: int64(len(data))}, err
+	}
+	return Result{BytesReceived: int64(len(data)), Success: true}, nil
 }
 
 func (r *Runner) doSetRetention(ctx context.Context, item WorkItem) (Result, error) {
@@ -845,6 +862,65 @@ func (r *Runner) doSetLegalHold(ctx context.Context, item WorkItem) (Result, err
 	return Result{BytesSent: int64(len(buf)), Success: true}, nil
 }
 
+func (r *Runner) verifyListVersions(data []byte) error {
+	type versionEntry struct {
+		Key            string `xml:"Key"`
+		ETag           string `xml:"ETag"`
+		ChecksumCRC32  string `xml:"ChecksumCRC32"`
+		ChecksumCRC32C string `xml:"ChecksumCRC32C"`
+	}
+	type listVersionsResult struct {
+		Versions []versionEntry `xml:"Version"`
+	}
+	var result listVersionsResult
+	if err := xml.Unmarshal(data, &result); err != nil {
+		return fmt.Errorf("parse list versions response: %w", err)
+	}
+	for _, v := range result.Versions {
+		key := strings.TrimSpace(v.Key)
+		if key == "" {
+			continue
+		}
+		record, ok, err := r.store.Lookup(key)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		var mdActual []byte
+		tag := strings.Trim(strings.TrimSpace(v.ETag), "\"")
+		if len(tag) == 32 && !strings.Contains(tag, "-") {
+			if decoded, err := hex.DecodeString(tag); err == nil {
+				mdActual = decoded
+			}
+		}
+		var crcPtr *uint32
+		checksum := strings.TrimSpace(v.ChecksumCRC32C)
+		if checksum == "" {
+			checksum = strings.TrimSpace(v.ChecksumCRC32)
+		}
+		if checksum != "" {
+			if decoded, err := base64.StdEncoding.DecodeString(checksum); err == nil {
+				var val uint32
+				switch len(decoded) {
+				case 4:
+					val = binary.BigEndian.Uint32(decoded)
+				case 8:
+					val = binary.BigEndian.Uint32(decoded[:4])
+				}
+				if val != 0 {
+					crcPtr = &val
+				}
+			}
+		}
+		if err := compareChecksums(key, record, nil, mdActual, crcPtr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func auxValue(values map[string]string, key string) string {
 	if values == nil {
 		return ""
@@ -859,6 +935,23 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func compareChecksums(key string, record payload.Record, shaActual, mdActual []byte, crcActual *uint32) error {
+	var mismatches []string
+	if len(record.SHA256) > 0 && shaActual != nil && !bytes.Equal(record.SHA256, shaActual) {
+		mismatches = append(mismatches, fmt.Sprintf("sha256 expected %s got %s", hex.EncodeToString(record.SHA256), hex.EncodeToString(shaActual)))
+	}
+	if len(record.MD5) > 0 && mdActual != nil && !bytes.Equal(record.MD5, mdActual) {
+		mismatches = append(mismatches, fmt.Sprintf("md5 expected %s got %s", hex.EncodeToString(record.MD5), hex.EncodeToString(mdActual)))
+	}
+	if record.CRC32C != 0 && crcActual != nil && record.CRC32C != *crcActual {
+		mismatches = append(mismatches, fmt.Sprintf("crc32c expected %08x got %08x", record.CRC32C, *crcActual))
+	}
+	if len(mismatches) > 0 {
+		return fmt.Errorf("checksum mismatch for %s: %s", key, strings.Join(mismatches, "; "))
+	}
+	return nil
 }
 
 func minInt64(a, b int64) int64 {

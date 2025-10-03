@@ -18,7 +18,8 @@ checks or benchmarking pipelines.
   `--workload-template`; switch to deterministic key lists via
   `--object-list-file`.
 - **Deterministic payloads** – optional checksum store (in-memory or filesystem)
-  lets GETs validate PUT content without external dependencies.
+  now tracks SHA-256, MD5, and CRC32C so GET, LIST, and multipart reads can
+  automatically verify payload integrity without external dependencies.
 - **Rate control** – token-bucket (default) or PID modes target a steady TPS
   while adapting to observed throughput.
 - **Observability** – Prometheus-style metrics endpoint, per-second summaries,

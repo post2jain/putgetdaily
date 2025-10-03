@@ -14,7 +14,9 @@ import (
 
 // Record captures payload metadata for integrity verification.
 type Record struct {
-	Digest []byte `json:"digest"`
+	SHA256 []byte `json:"sha256"`
+	MD5    []byte `json:"md5,omitempty"`
+	CRC32C uint32 `json:"crc32c,omitempty"`
 	Size   int64  `json:"size"`
 }
 
@@ -38,12 +40,14 @@ func NewMemoryStore() *MemoryStore {
 
 // Remember stores the provided record.
 func (m *MemoryStore) Remember(key string, record Record) error {
-	if len(record.Digest) == 0 {
-		return nil
-	}
 	copyRecord := Record{
-		Digest: append([]byte(nil), record.Digest...),
+		SHA256: append([]byte(nil), record.SHA256...),
+		MD5:    append([]byte(nil), record.MD5...),
+		CRC32C: record.CRC32C,
 		Size:   record.Size,
+	}
+	if len(copyRecord.SHA256) == 0 && len(copyRecord.MD5) == 0 && copyRecord.CRC32C == 0 {
+		return nil
 	}
 	m.payloads.Store(key, copyRecord)
 	return nil
@@ -56,7 +60,8 @@ func (m *MemoryStore) Lookup(key string) (Record, bool, error) {
 		return Record{}, false, nil
 	}
 	rec := val.(Record)
-	rec.Digest = append([]byte(nil), rec.Digest...)
+	rec.SHA256 = append([]byte(nil), rec.SHA256...)
+	rec.MD5 = append([]byte(nil), rec.MD5...)
 	return rec, true, nil
 }
 
@@ -88,7 +93,7 @@ func NewFileStore(baseDir string) (*FileStore, error) {
 
 // Remember writes or updates the record on disk.
 func (f *FileStore) Remember(key string, record Record) error {
-	if len(record.Digest) == 0 {
+	if len(record.SHA256) == 0 && len(record.MD5) == 0 && record.CRC32C == 0 {
 		return nil
 	}
 	path := f.pathForKey(key)
