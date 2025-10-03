@@ -1,0 +1,9 @@
+{
+  "operations": [
+    { "operation": "get", "weight": 60 },
+    { "operation": "randget", "weight": 40 }
+  ],
+  "options": {
+    "key_strategy": "zipf"
+  }
+}

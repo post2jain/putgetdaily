@@ -1,0 +1,6 @@
+{
+  "operations": [
+    { "operation": "get", "weight": 90 },
+    { "operation": "randget", "weight": 10 }
+  ]
+}

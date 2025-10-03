@@ -1,0 +1,12 @@
+{
+  "operations": [
+    { "operation": "put", "weight": 65 },
+    { "operation": "copy", "weight": 20 },
+    { "operation": "delete", "weight": 5 },
+    { "operation": "puttagging", "weight": 5 },
+    { "operation": "updatemeta", "weight": 5 }
+  ],
+  "options": {
+    "key_strategy": "sequential"
+  }
+}

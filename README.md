@@ -72,7 +72,7 @@ go run ./cmd/s3load \
   --max-concurrency 2000 \
   --tps 1000 \
   --duration 60 \
-  --json-report run.json
+    --json-report run.json
 ```
 
 Use `--requests <N>` instead of `--duration` to issue a fixed number of calls.
@@ -116,7 +116,13 @@ multipart tuning.
   `objects.txt` for an example format).
 - **Weighted operations** – define mixes like 70% GET / 30% PUT with
   `--workload-file` JSON. Built-in templates can be listed via
-  `--list-templates` and loaded with `--workload-template template-name`.
+  `--list-templates` and include:
+  - `smoke` (simple PUT-only sanity check)
+  - `put-get` (balanced PUT/GET sampler)
+  - `hot-read` (heavy on GETs, small percentage of random range reads)
+  - `cold-read` (simulates long-tail reads with Zipf key selection)
+  - `overwrite-heavy` (overwrites and metadata/tag updates on existing keys)
+  Load one with `--workload-template <name>`.
 
 ---
 
