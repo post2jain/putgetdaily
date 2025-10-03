@@ -35,6 +35,7 @@ The tool generates and measures S3 workloads against any S3-compatible endpoint.
    - Generate/lookup keys, build payloads (size parameter), optional integrity tag (hash stored alongside key map; for reads validate against stored hash).
    - Use retry strategy (max attempts, backoff policy) on transient failures.
    - Emit per-request metrics: latency, result codes, bytes transferred.
+   - Compliance helpers issue ACL, lifecycle, versioning, retention, and legal-hold calls, reusing the same execution pipeline.
 5. **Metrics & Reporting**:
    - Prometheus counters/gauges/histograms for TPS, latency, errors, concurrency.
    - Health endpoint exposing readiness + basic stats.

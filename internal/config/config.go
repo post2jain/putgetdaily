@@ -15,55 +15,63 @@ const envPrefix = "S3LOAD_"
 
 // Config captures the runtime configuration of the load generator.
 type Config struct {
-	Endpoints        []string          `json:"endpoints"`
-	Bucket           string            `json:"bucket"`
-	Operation        string            `json:"operation"`
-	Duration         time.Duration     `json:"duration"`
-	Requests         int               `json:"requests"`
-	Concurrency      int               `json:"concurrency"`
-	MaxConcurrency   int               `json:"max_concurrency"`
-	TargetTPS        float64           `json:"tps"`
-	ObjectSize       int64             `json:"size"`
-	PartSize         int64             `json:"partsize"`
-	Retries          int               `json:"retries"`
-	RetryBackoff     time.Duration     `json:"retry_backoff"`
-	RetryJitterPct   float64           `json:"retry_jitter"`
-	AccessKey        string            `json:"access_key"`
-	SecretKey        string            `json:"secret_key"`
-	Region           string            `json:"region"`
-	ObjectListFile   string            `json:"object_list_file"`
-	WorkloadFile     string            `json:"workload_file"`
-	WorkloadTemplate string            `json:"workload_template"`
-	ListTemplates    bool              `json:"list_templates"`
-	Describe         bool              `json:"describe"`
-	DryRun           bool              `json:"dry_run"`
-	KeyStrategy      string            `json:"key_strategy"`
-	Prefixes         []string          `json:"prefixes"`
-	Metadata         map[string]string `json:"metadata"`
-	Tagging          string            `json:"tagging"`
-	TaggingMap       map[string]string `json:"-"`
-	KeyPrefix        string            `json:"prefix"`
-	AddressingStyle  string            `json:"addressing_style"`
-	HTTPTimeout      time.Duration     `json:"http_timeout"`
-	ConnLifetime     time.Duration     `json:"conn_lifetime"`
-	ConnReapInterval time.Duration     `json:"conn_reap_interval"`
-	ShutdownGrace    time.Duration     `json:"shutdown_grace"`
-	MetricsAddr      string            `json:"metrics_addr"`
-	JSONReportPath   string            `json:"json_report"`
-	LogLevel         string            `json:"log_level"`
-	PayloadVerify    bool              `json:"verify_payload"`
-	RateAlgorithm    string            `json:"rate_algorithm"`
-	PIDKp            float64           `json:"pid_kp"`
-	PIDKi            float64           `json:"pid_ki"`
-	PIDKd            float64           `json:"pid_kd"`
-	ZipfS            float64           `json:"zipf_s"`
-	ZipfV            float64           `json:"zipf_v"`
-	ZipfIMax         uint64            `json:"zipf_imax"`
-	ChecksumStore    string            `json:"checksum_store"`
-	ChecksumPath     string            `json:"checksum_path"`
-	MaxErrorRate     float64           `json:"max_error_rate"`
-	MaxLatencyP99    time.Duration     `json:"max_latency_p99"`
-	MultipartFail    string            `json:"multipart_on_error"`
+	Endpoints         []string          `json:"endpoints"`
+	Bucket            string            `json:"bucket"`
+	Operation         string            `json:"operation"`
+	ACL               string            `json:"acl"`
+	BucketACL         string            `json:"bucket_acl"`
+	Duration          time.Duration     `json:"duration"`
+	Requests          int               `json:"requests"`
+	Concurrency       int               `json:"concurrency"`
+	MaxConcurrency    int               `json:"max_concurrency"`
+	TargetTPS         float64           `json:"tps"`
+	ObjectSize        int64             `json:"size"`
+	PartSize          int64             `json:"partsize"`
+	Retries           int               `json:"retries"`
+	RetryBackoff      time.Duration     `json:"retry_backoff"`
+	RetryJitterPct    float64           `json:"retry_jitter"`
+	AccessKey         string            `json:"access_key"`
+	SecretKey         string            `json:"secret_key"`
+	Region            string            `json:"region"`
+	ObjectListFile    string            `json:"object_list_file"`
+	LifecycleFile     string            `json:"lifecycle_file"`
+	WorkloadFile      string            `json:"workload_file"`
+	WorkloadTemplate  string            `json:"workload_template"`
+	ListTemplates     bool              `json:"list_templates"`
+	Describe          bool              `json:"describe"`
+	DryRun            bool              `json:"dry_run"`
+	KeyStrategy       string            `json:"key_strategy"`
+	Prefixes          []string          `json:"prefixes"`
+	Metadata          map[string]string `json:"metadata"`
+	Tagging           string            `json:"tagging"`
+	TaggingMap        map[string]string `json:"-"`
+	KeyPrefix         string            `json:"prefix"`
+	AddressingStyle   string            `json:"addressing_style"`
+	HTTPTimeout       time.Duration     `json:"http_timeout"`
+	ConnLifetime      time.Duration     `json:"conn_lifetime"`
+	ConnReapInterval  time.Duration     `json:"conn_reap_interval"`
+	ShutdownGrace     time.Duration     `json:"shutdown_grace"`
+	MetricsAddr       string            `json:"metrics_addr"`
+	JSONReportPath    string            `json:"json_report"`
+	LogLevel          string            `json:"log_level"`
+	PayloadVerify     bool              `json:"verify_payload"`
+	RateAlgorithm     string            `json:"rate_algorithm"`
+	PIDKp             float64           `json:"pid_kp"`
+	PIDKi             float64           `json:"pid_ki"`
+	PIDKd             float64           `json:"pid_kd"`
+	ZipfS             float64           `json:"zipf_s"`
+	ZipfV             float64           `json:"zipf_v"`
+	ZipfIMax          uint64            `json:"zipf_imax"`
+	ChecksumStore     string            `json:"checksum_store"`
+	ChecksumPath      string            `json:"checksum_path"`
+	VersioningState   string            `json:"versioning_state"`
+	RetentionMode     string            `json:"retention_mode"`
+	RetentionDuration time.Duration     `json:"retention_duration"`
+	LegalHoldStatus   string            `json:"legal_hold_status"`
+	BypassGovernance  bool              `json:"bypass_governance"`
+	MaxErrorRate      float64           `json:"max_error_rate"`
+	MaxLatencyP99     time.Duration     `json:"max_latency_p99"`
+	MultipartFail     string            `json:"multipart_on_error"`
 }
 
 // defaultConfig returns a Config populated with default values.
@@ -144,6 +152,9 @@ func Parse(args []string) (*Config, error) {
 	secretKeyFlag := fs.String("secret-key", cfg.SecretKey, "AWS secret access key")
 	regionFlag := fs.String("region", cfg.Region, "AWS region")
 	objectListFlag := fs.String("object-list-file", cfg.ObjectListFile, "Path to newline-separated list of object keys")
+	aclFlag := fs.String("acl", cfg.ACL, "Canned ACL for object ACL operations (e.g. private, public-read)")
+	bucketACLFlag := fs.String("bucket-acl", cfg.BucketACL, "Canned ACL for bucket ACL operations")
+	lifecycleFlag := fs.String("lifecycle-file", cfg.LifecycleFile, "Path to expected lifecycle configuration used by checklifecycle operation")
 	workloadFileFlag := fs.String("workload-file", cfg.WorkloadFile, "Path to JSON file describing weighted operations")
 	workloadTemplateFlag := fs.String("workload-template", cfg.WorkloadTemplate, "Built-in workload template name")
 	listTemplatesFlag := fs.Bool("list-templates", cfg.ListTemplates, "List built-in workload templates and exit")
@@ -172,6 +183,11 @@ func Parse(args []string) (*Config, error) {
 	zipfIMaxFlag := fs.Uint64("zipf-imax", cfg.ZipfIMax, "Zipf distribution maximum key index (0 derives from dataset)")
 	checksumStoreFlag := fs.String("checksum-store", cfg.ChecksumStore, "Checksum store backend: memory or filesystem")
 	checksumPathFlag := fs.String("checksum-path", cfg.ChecksumPath, "Directory for filesystem checksum store")
+	versioningFlag := fs.String("versioning-state", cfg.VersioningState, "Bucket versioning state: enabled or suspended")
+	retentionModeFlag := fs.String("retention-mode", cfg.RetentionMode, "Object lock retention mode: governance or compliance")
+	retentionDurationFlag := fs.Duration("retention-duration", cfg.RetentionDuration, "Retention duration to add to current time when setting object retention")
+	legalHoldFlag := fs.String("legal-hold-status", cfg.LegalHoldStatus, "Legal hold status: on or off")
+	bypassGovernanceFlag := fs.Bool("bypass-governance", cfg.BypassGovernance, "Set x-amz-bypass-governance-retention header when updating retention")
 	maxErrorRateFlag := fs.Float64("max-error-rate", cfg.MaxErrorRate, "Maximum acceptable error rate (0-1); negative disables")
 	maxLatencyP99Flag := fs.Duration("max-latency-p99", cfg.MaxLatencyP99, "Maximum acceptable p99 latency (0 disables)")
 	multipartFailFlag := fs.String("multipart-on-error", cfg.MultipartFail, "Behavior when multipart upload fails: abort or resume")
@@ -246,6 +262,15 @@ func Parse(args []string) (*Config, error) {
 	}
 	if setFlags["object-list-file"] {
 		cfg.ObjectListFile = *objectListFlag
+	}
+	if setFlags["acl"] {
+		cfg.ACL = *aclFlag
+	}
+	if setFlags["bucket-acl"] {
+		cfg.BucketACL = *bucketACLFlag
+	}
+	if setFlags["lifecycle-file"] {
+		cfg.LifecycleFile = *lifecycleFlag
 	}
 	if setFlags["workload-file"] {
 		cfg.WorkloadFile = *workloadFileFlag
@@ -346,6 +371,21 @@ func Parse(args []string) (*Config, error) {
 	if setFlags["checksum-path"] {
 		cfg.ChecksumPath = *checksumPathFlag
 	}
+	if setFlags["versioning-state"] {
+		cfg.VersioningState = strings.ToLower(*versioningFlag)
+	}
+	if setFlags["retention-mode"] {
+		cfg.RetentionMode = strings.ToLower(*retentionModeFlag)
+	}
+	if setFlags["retention-duration"] {
+		cfg.RetentionDuration = *retentionDurationFlag
+	}
+	if setFlags["legal-hold-status"] {
+		cfg.LegalHoldStatus = strings.ToLower(*legalHoldFlag)
+	}
+	if setFlags["bypass-governance"] {
+		cfg.BypassGovernance = *bypassGovernanceFlag
+	}
 	if setFlags["max-error-rate"] {
 		cfg.MaxErrorRate = *maxErrorRateFlag
 	}
@@ -384,9 +424,11 @@ func (c *Config) Snapshot() map[string]any {
 		"endpoints":          c.Endpoints,
 		"bucket":             c.Bucket,
 		"operation":          c.Operation,
+		"acl":                c.ACL,
+		"bucket_acl":         c.BucketACL,
 		"duration":           c.Duration.String(),
 		"requests":           c.Requests,
-		"dry_run":           c.DryRun,
+		"dry_run":            c.DryRun,
 		"concurrency":        c.Concurrency,
 		"max_concurrency":    c.MaxConcurrency,
 		"tps":                c.TargetTPS,
@@ -399,6 +441,7 @@ func (c *Config) Snapshot() map[string]any {
 		"secret_key":         maskSecret(c.SecretKey),
 		"region":             c.Region,
 		"object_list_file":   c.ObjectListFile,
+		"lifecycle_file":     c.LifecycleFile,
 		"workload_file":      c.WorkloadFile,
 		"workload_template":  c.WorkloadTemplate,
 		"key_strategy":       c.KeyStrategy,
@@ -424,6 +467,11 @@ func (c *Config) Snapshot() map[string]any {
 		"zipf_imax":          c.ZipfIMax,
 		"checksum_store":     c.ChecksumStore,
 		"checksum_path":      c.ChecksumPath,
+		"versioning_state":   c.VersioningState,
+		"retention_mode":     c.RetentionMode,
+		"retention_duration": c.RetentionDuration.String(),
+		"legal_hold_status":  c.LegalHoldStatus,
+		"bypass_governance":  c.BypassGovernance,
 		"max_error_rate":     c.MaxErrorRate,
 		"max_latency_p99":    c.MaxLatencyP99.String(),
 		"multipart_on_error": c.MultipartFail,
@@ -517,11 +565,12 @@ func envKeyMapping() map[string]string {
 		"SECRET_KEY":         "secret_key",
 		"REGION":             "region",
 		"OBJECT_LIST_FILE":   "object_list_file",
+		"LIFECYCLE_FILE":     "lifecycle_file",
 		"WORKLOAD_FILE":      "workload_file",
 		"WORKLOAD_TEMPLATE":  "workload_template",
 		"LIST_TEMPLATES":     "list_templates",
 		"DESCRIBE":           "describe",
-		"DRY_RUN":           "dry-run",
+		"DRY_RUN":            "dry-run",
 		"KEY_STRATEGY":       "key_strategy",
 		"PREFIXES":           "prefixes",
 		"METADATA":           "metadata",
@@ -546,6 +595,13 @@ func envKeyMapping() map[string]string {
 		"ZIPF_IMAX":          "zipf_imax",
 		"CHECKSUM_STORE":     "checksum_store",
 		"CHECKSUM_PATH":      "checksum_path",
+		"ACL":                "acl",
+		"BUCKET_ACL":         "bucket_acl",
+		"VERSIONING_STATE":   "versioning_state",
+		"RETENTION_MODE":     "retention_mode",
+		"RETENTION_DURATION": "retention_duration",
+		"LEGAL_HOLD_STATUS":  "legal_hold_status",
+		"BYPASS_GOVERNANCE":  "bypass_governance",
 		"MAX_ERROR_RATE":     "max_error_rate",
 		"MAX_LATENCY_P99":    "max_latency_p99",
 		"MULTIPART_ON_ERROR": "multipart_on_error",
@@ -617,6 +673,8 @@ func applyConfigValue(cfg *Config, key string, value any) error {
 		cfg.Region = fmt.Sprint(value)
 	case "object_list_file":
 		cfg.ObjectListFile = fmt.Sprint(value)
+	case "lifecycle_file":
+		cfg.LifecycleFile = fmt.Sprint(value)
 	case "workload_file":
 		cfg.WorkloadFile = fmt.Sprint(value)
 	case "workload_template":
@@ -728,6 +786,24 @@ func applyConfigValue(cfg *Config, key string, value any) error {
 		cfg.ChecksumStore = strings.ToLower(fmt.Sprint(value))
 	case "checksum_path":
 		cfg.ChecksumPath = fmt.Sprint(value)
+	case "acl":
+		cfg.ACL = fmt.Sprint(value)
+	case "bucket_acl":
+		cfg.BucketACL = fmt.Sprint(value)
+	case "versioning_state":
+		cfg.VersioningState = strings.ToLower(fmt.Sprint(value))
+	case "retention_mode":
+		cfg.RetentionMode = strings.ToLower(fmt.Sprint(value))
+	case "retention_duration":
+		if err := setDuration(&cfg.RetentionDuration, value); err != nil {
+			return err
+		}
+	case "legal_hold_status":
+		cfg.LegalHoldStatus = strings.ToLower(fmt.Sprint(value))
+	case "bypass_governance":
+		if err := setBool(&cfg.BypassGovernance, value); err != nil {
+			return err
+		}
 	case "max_error_rate":
 		if err := setFloat(&cfg.MaxErrorRate, value); err != nil {
 			return err
@@ -932,6 +1008,40 @@ func (c *Config) validate() error {
 	case "abort", "resume":
 	default:
 		return fmt.Errorf("unsupported multipart-on-error %q", c.MultipartFail)
+	}
+	if c.ACL != "" {
+		c.ACL = strings.ToLower(c.ACL)
+	}
+	if c.BucketACL != "" {
+		c.BucketACL = strings.ToLower(c.BucketACL)
+	}
+	if c.LifecycleFile != "" {
+		if _, err := os.Stat(c.LifecycleFile); err != nil {
+			return fmt.Errorf("lifecycle-file: %w", err)
+		}
+	}
+	switch c.VersioningState {
+	case "", "enabled", "suspended":
+	default:
+		return fmt.Errorf("unsupported versioning-state %q", c.VersioningState)
+	}
+	switch c.RetentionMode {
+	case "", "governance", "compliance":
+	default:
+		return fmt.Errorf("unsupported retention-mode %q", c.RetentionMode)
+	}
+	if c.RetentionMode != "" {
+		if c.RetentionDuration <= 0 {
+			return errors.New("retention-duration must be greater than zero when retention-mode is set")
+		}
+	}
+	if c.RetentionDuration < 0 {
+		return errors.New("retention-duration cannot be negative")
+	}
+	switch c.LegalHoldStatus {
+	case "", "on", "off":
+	default:
+		return fmt.Errorf("unsupported legal-hold-status %q", c.LegalHoldStatus)
 	}
 	if c.ChecksumStore == "filesystem" && c.ChecksumPath == "" {
 		return errors.New("checksum-path is required for filesystem store")

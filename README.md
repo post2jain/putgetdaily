@@ -95,12 +95,20 @@ variables prefixed with `S3LOAD_`, and optional JSON config files. Key flags:
 | `--tps` | `S3LOAD_TPS` | Target transactions per second. |
 | `--size` | `S3LOAD_SIZE` | Object size in bytes for PUT workloads. |
 | `--object-list-file` | `S3LOAD_OBJECT_LIST_FILE` | Newline-separated list of keys to reuse. |
+| `--lifecycle-file` | `S3LOAD_LIFECYCLE_FILE` | Expected lifecycle XML used by `checklifecycle`. |
 | `--workload-file` | `S3LOAD_WORKLOAD_FILE` | JSON definition of weighted operations. |
 | `--workload-template` | `S3LOAD_WORKLOAD_TEMPLATE` | Built-in workload name (`--list-templates` to view choices). |
 | `--metrics-addr` | `S3LOAD_METRICS_ADDR` | Expose Prometheus metrics on the given address (e.g. `:9090`). |
 | `--json-report` | `S3LOAD_JSON_REPORT` | Write the final report to a file in addition to stdout. |
 | `--rate-algorithm` | `S3LOAD_RATE_ALGORITHM` | `token-bucket` (default) or `pid` for adaptive control. |
 | `--conn-lifetime` | `S3LOAD_CONN_LIFETIME` | Maximum wall-clock lifetime for each TCP connection; closes sockets after the duration even if they stay busy. |
+| `--acl` | `S3LOAD_ACL` | Default canned ACL for `objectacl`. |
+| `--bucket-acl` | `S3LOAD_BUCKET_ACL` | Default canned ACL for `bucketacl`. |
+| `--versioning-state` | `S3LOAD_VERSIONING_STATE` | Bucket versioning state (`enabled` or `suspended`). |
+| `--retention-mode` | `S3LOAD_RETENTION_MODE` | Object lock retention mode (`governance` or `compliance`). |
+| `--retention-duration` | `S3LOAD_RETENTION_DURATION` | Duration added to now when setting retention (e.g. `720h`). |
+| `--legal-hold-status` | `S3LOAD_LEGAL_HOLD_STATUS` | Legal hold status (`on` or `off`). |
+| `--bypass-governance` | `S3LOAD_BYPASS_GOVERNANCE` | Add `x-amz-bypass-governance-retention` when setting retention. |
 
 See `go run ./cmd/s3load --help` for the full flag list, including retry
 configuration, keyspace strategies (`sequential`, `random`, `zipf`), and
@@ -123,6 +131,10 @@ multipart tuning.
   - `cold-read` (simulates long-tail reads with Zipf key selection)
   - `overwrite-heavy` (overwrites and metadata/tag updates on existing keys)
   Load one with `--workload-template <name>`.
+- **Compliance operations** – trigger canned operations such as `objectacl`,
+  `bucketacl`, `checklifecycle`, `bucketversioning`, `listversions`,
+  `setretention`, and `setlegalhold` to validate governance workflows. Combine
+  them in a workload mix or drive them directly with `--operation`.
 
 ---
 

@@ -12,10 +12,12 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"log/slog"
 
@@ -40,12 +42,15 @@ type WorkItem struct {
 
 // Runner executes S3 operations.
 type Runner struct {
-	client   *s3client.Client
-	cfg      *config.Config
-	store    payload.Store
-	logger   *slog.Logger
-	mpMu     sync.Mutex
-	sessions map[string]*multipartSession
+	client        *s3client.Client
+	cfg           *config.Config
+	store         payload.Store
+	logger        *slog.Logger
+	mpMu          sync.Mutex
+	sessions      map[string]*multipartSession
+	lifecycleOnce sync.Once
+	lifecycleData []byte
+	lifecycleErr  error
 }
 
 // NewRunner constructs a Runner.
@@ -107,6 +112,20 @@ func (r *Runner) Process(ctx context.Context, item WorkItem) (Result, error) {
 		return r.doMultipartPut(ctx, item.Key)
 	case "copy":
 		return r.doCopy(ctx, item.Key)
+	case "objectacl":
+		return r.doPutObjectACL(ctx, item)
+	case "bucketacl":
+		return r.doPutBucketACL(ctx, item)
+	case "checklifecycle":
+		return r.doCheckLifecycle(ctx, item)
+	case "bucketversioning":
+		return r.doBucketVersioning(ctx, item)
+	case "listversions":
+		return r.doListVersions(ctx, item)
+	case "setretention":
+		return r.doSetRetention(ctx, item)
+	case "setlegalhold":
+		return r.doSetLegalHold(ctx, item)
 	default:
 		return Result{}, fmt.Errorf("unsupported operation %q", op)
 	}
@@ -575,6 +594,271 @@ func (r *Runner) doCopy(ctx context.Context, key string) (Result, error) {
 		resp.Body.Close()
 	}
 	return Result{Success: true}, nil
+}
+
+func (r *Runner) doPutObjectACL(ctx context.Context, item WorkItem) (Result, error) {
+	acl := firstNonEmpty(auxValue(item.Aux, "acl"), r.cfg.ACL)
+	if acl == "" {
+		return Result{}, errors.New("acl not configured")
+	}
+	if item.Key == "" {
+		return Result{}, errors.New("object key required for objectacl")
+	}
+	headers := http.Header{}
+	headers.Set("x-amz-acl", acl)
+	req := s3client.Request{
+		Method:       http.MethodPut,
+		Key:          item.Key,
+		Headers:      headers,
+		Query:        url.Values{"acl": {""}},
+		ExpectStatus: http.StatusOK,
+	}
+	resp, err := r.client.Do(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	if resp.Body != nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	return Result{Success: true}, nil
+}
+
+func (r *Runner) doPutBucketACL(ctx context.Context, item WorkItem) (Result, error) {
+	acl := firstNonEmpty(auxValue(item.Aux, "bucket_acl"), r.cfg.BucketACL)
+	if acl == "" {
+		return Result{}, errors.New("bucket-acl not configured")
+	}
+	headers := http.Header{}
+	headers.Set("x-amz-acl", acl)
+	req := s3client.Request{
+		Method:       http.MethodPut,
+		Headers:      headers,
+		Query:        url.Values{"acl": {""}},
+		ExpectStatus: http.StatusOK,
+	}
+	resp, err := r.client.Do(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	if resp.Body != nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	return Result{Success: true}, nil
+}
+
+func (r *Runner) doCheckLifecycle(ctx context.Context, item WorkItem) (Result, error) {
+	if r.cfg.LifecycleFile == "" {
+		return Result{}, errors.New("lifecycle-file not configured")
+	}
+	expected, err := r.loadLifecycleExpected()
+	if err != nil {
+		return Result{}, err
+	}
+	req := s3client.Request{
+		Method:       http.MethodGet,
+		Query:        url.Values{"lifecycle": {""}},
+		ExpectStatus: http.StatusOK,
+	}
+	resp, err := r.client.Do(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return Result{}, err
+	}
+	trimmed := bytes.TrimSpace(data)
+	if !bytes.Equal(trimmed, expected) {
+		return Result{}, fmt.Errorf("lifecycle mismatch: got %q", string(trimmed))
+	}
+	return Result{BytesReceived: int64(len(data)), Success: true}, nil
+}
+
+func (r *Runner) loadLifecycleExpected() ([]byte, error) {
+	r.lifecycleOnce.Do(func() {
+		data, err := os.ReadFile(r.cfg.LifecycleFile)
+		if err != nil {
+			r.lifecycleErr = err
+			return
+		}
+		r.lifecycleData = bytes.TrimSpace(data)
+	})
+	return r.lifecycleData, r.lifecycleErr
+}
+
+func (r *Runner) doBucketVersioning(ctx context.Context, item WorkItem) (Result, error) {
+	state := strings.ToLower(firstNonEmpty(auxValue(item.Aux, "versioning_state"), r.cfg.VersioningState))
+	if state == "" {
+		return Result{}, errors.New("versioning-state not configured")
+	}
+	var status string
+	switch state {
+	case "enabled":
+		status = "Enabled"
+	case "suspended":
+		status = "Suspended"
+	default:
+		return Result{}, fmt.Errorf("unsupported versioning-state %q", state)
+	}
+	body := fmt.Sprintf(`<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>%s</Status></VersioningConfiguration>`, status)
+	buf := []byte(body)
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/xml")
+	hash := sha256.Sum256(buf)
+	req := s3client.Request{
+		Method:        http.MethodPut,
+		Headers:       headers,
+		Query:         url.Values{"versioning": {""}},
+		Body:          bytes.NewReader(buf),
+		ContentLength: int64(len(buf)),
+		PayloadSHA256: hex.EncodeToString(hash[:]),
+		ExpectStatus:  http.StatusOK,
+	}
+	resp, err := r.client.Do(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	if resp.Body != nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	return Result{BytesSent: int64(len(buf)), Success: true}, nil
+}
+
+func (r *Runner) doListVersions(ctx context.Context, item WorkItem) (Result, error) {
+	query := url.Values{"versions": {""}}
+	if item.Key != "" {
+		query.Set("prefix", item.Key)
+	}
+	req := s3client.Request{
+		Method:       http.MethodGet,
+		Query:        query,
+		ExpectStatus: http.StatusOK,
+	}
+	resp, err := r.client.Do(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	defer resp.Body.Close()
+	bytesRead, err := io.Copy(io.Discard, resp.Body)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{BytesReceived: bytesRead, Success: true}, nil
+}
+
+func (r *Runner) doSetRetention(ctx context.Context, item WorkItem) (Result, error) {
+	mode := strings.ToLower(firstNonEmpty(auxValue(item.Aux, "retention_mode"), r.cfg.RetentionMode))
+	if mode == "" {
+		return Result{}, errors.New("retention-mode not configured")
+	}
+	var modeUpper string
+	switch mode {
+	case "governance":
+		modeUpper = "GOVERNANCE"
+	case "compliance":
+		modeUpper = "COMPLIANCE"
+	default:
+		return Result{}, fmt.Errorf("unsupported retention-mode %q", mode)
+	}
+	duration := r.cfg.RetentionDuration
+	if v := auxValue(item.Aux, "retention_duration"); v != "" {
+		parsed, err := time.ParseDuration(v)
+		if err != nil {
+			return Result{}, fmt.Errorf("parse retention_duration: %w", err)
+		}
+		duration = parsed
+	}
+	if duration <= 0 {
+		return Result{}, errors.New("retention-duration must be greater than zero")
+	}
+	retainUntil := time.Now().Add(duration).UTC().Format(time.RFC3339)
+	body := fmt.Sprintf(`{"Mode":"%s","RetainUntilDate":"%s"}`, modeUpper, retainUntil)
+	buf := []byte(body)
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/json")
+	if r.cfg.BypassGovernance || strings.EqualFold(auxValue(item.Aux, "bypass_governance"), "true") {
+		headers.Set("x-amz-bypass-governance-retention", "true")
+	}
+	hash := sha256.Sum256(buf)
+	req := s3client.Request{
+		Method:        http.MethodPut,
+		Key:           item.Key,
+		Headers:       headers,
+		Query:         url.Values{"retention": {""}},
+		Body:          bytes.NewReader(buf),
+		ContentLength: int64(len(buf)),
+		PayloadSHA256: hex.EncodeToString(hash[:]),
+		ExpectStatus:  http.StatusOK,
+	}
+	resp, err := r.client.Do(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	if resp.Body != nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	return Result{BytesSent: int64(len(buf)), Success: true}, nil
+}
+
+func (r *Runner) doSetLegalHold(ctx context.Context, item WorkItem) (Result, error) {
+	status := strings.ToLower(firstNonEmpty(auxValue(item.Aux, "legal_hold_status"), r.cfg.LegalHoldStatus))
+	if status == "" {
+		return Result{}, errors.New("legal-hold-status not configured")
+	}
+	var xmlStatus string
+	switch status {
+	case "on":
+		xmlStatus = "ON"
+	case "off":
+		xmlStatus = "OFF"
+	default:
+		return Result{}, fmt.Errorf("unsupported legal-hold-status %q", status)
+	}
+	body := fmt.Sprintf(`<LegalHold xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>%s</Status></LegalHold>`, xmlStatus)
+	buf := []byte(body)
+	headers := http.Header{}
+	headers.Set("Content-Type", "application/xml")
+	hash := sha256.Sum256(buf)
+	req := s3client.Request{
+		Method:        http.MethodPut,
+		Key:           item.Key,
+		Headers:       headers,
+		Query:         url.Values{"legal-hold": {""}},
+		Body:          bytes.NewReader(buf),
+		ContentLength: int64(len(buf)),
+		PayloadSHA256: hex.EncodeToString(hash[:]),
+		ExpectStatus:  http.StatusOK,
+	}
+	resp, err := r.client.Do(ctx, req)
+	if err != nil {
+		return Result{}, err
+	}
+	if resp.Body != nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+	return Result{BytesSent: int64(len(buf)), Success: true}, nil
+}
+
+func auxValue(values map[string]string, key string) string {
+	if values == nil {
+		return ""
+	}
+	return values[key]
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func minInt64(a, b int64) int64 {
